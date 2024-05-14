@@ -1,4 +1,8 @@
+transformers
+librosa
 fastapi==0.111.0
 fastapi-cli==0.0.3
 speechbrain==1.0.0
 uvicorn==0.29.0
+Levenshtein
+soundfile
