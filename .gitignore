@@ -3,11 +3,13 @@
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
-# website: http://jupyter.org/
+# website: http://jupyter.org
 
-.ipynb_checkpoints/
+.ipynb_checkpoints
 */.ipynb_checkpoints/*
 
+.ipynb_checkpoints/
+pretrained_models/
 tmp*/
 # IPython
 profile_default/
