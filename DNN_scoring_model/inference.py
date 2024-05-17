@@ -50,18 +50,7 @@ def inference():
 
     if args.lang == 'en':
         base_model_name = 'facebook/wav2vec2-large-robust-ft-libri-960h'
-    elif args.lang == 'jp':
-        base_model_name = 'NTQAI/wav2vec2-large-japanese'
-    elif args.lang == 'zh':
-        base_model_name = 'jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn'
-    elif args.lang == 'de':
-        base_model_name = 'facebook/wav2vec2-large-xlsr-53-german'
-    elif args.lang == 'es':
-        base_model_name = 'facebook/wav2vec2-large-xlsr-53-spanish'
-    elif args.lang == 'fr':
-        base_model_name = 'facebook/wav2vec2-large-xlsr-53-french' 
-    elif args.lang == 'ru':
-        base_model_name = 'bond005/wav2vec2-large-ru-golos'
+
 
     f = open(f'result_{args.lang}_{args.label_type1}_{args.label_type2}_{args.data_type}.txt', 'w')
     f.write(f'{args.lang}, {args.label_type1}, {args.label_type2}, base_model: {base_model_name}')
