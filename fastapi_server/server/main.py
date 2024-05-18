@@ -5,13 +5,17 @@ from speechbrain.inference.TTS import Tacotron2
 from speechbrain.inference.vocoders import HIFIGAN
 from speechbrain.inference.ASR import EncoderDecoderASR
 import tempfile
-import subprocess
+from fastapi.responses import JSONResponse
+import pydantic
 from pydub import AudioSegment
+from pydantic import BaseModel
 import tempfile
 import os
+from .inference_wav import inference_wav
+from .inference_wav import inference_wav2
 import sys
 sys.path.append('/usr/bin/ffmpeg')
-
+import argparse
 app = FastAPI()
 
 tacotron2 = Tacotron2.from_hparams(
@@ -57,47 +61,53 @@ async def transcribe_audio(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 
-@app.post("/infer/")
-async def transcribe_audio(file: UploadFile = File(...)):
-    # 일시적으로 파일 저장
+
+
+#python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ../model_ckpt/
+
+
+class InferenceParams(BaseModel):
+    lang: str = "en"
+    label_type1: str = "pron"
+    label_type2: str = "articulation"
+
+class InferenceResult(BaseModel):
+    total_score: float
+    articulation_score: float
+    prosody_score: float
+
+@app.post("/infer/", response_model=InferenceResult)
+async def scoring_audio(file: UploadFile = File(...), params: InferenceParams = None):
+    if params is None:
+        params = InferenceParams()
+
     with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as temp_file:
         temp_file.write(await file.read())
         m4a_filepath = temp_file.name
 
-    # M4A 파일을 WAV 형식으로 변환
     wav_filepath = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-    track = AudioSegment.from_file(m4a_filepath, format='m4a')
-    track.export(wav_filepath, format='wav')
 
     try:
-        # 추론 코드 실행 (첫 번째 매개변수 세트)
-        result1 = subprocess.run(
-            ['python3', 'inference_wav.py', '--wav', wav_filepath, '--lang', 'en', '--label_type1', 'pron', '--label_type2', 'articulation', '--device', 'cpu', '--dir_model', '../model_ckpt'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        score1 = float(result1.stdout.strip())
+        track = AudioSegment.from_file(m4a_filepath, format="m4a")
+        track.export(wav_filepath, format="wav")
 
-        # 추론 코드 실행 (두 번째 매개변수 세트)
-        result2 = subprocess.run(
-            ['python3', 'inference_wav.py', '--wav', wav_filepath, '--lang', 'en', '--label_type1', 'pron', '--label_type2', 'prosody', '--device', 'cpu', '--dir_model', '../model_ckpt'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        score2 = float(result2.stdout.strip())
-
-        # 두 점수 합산
+        # Calculate articulation score
+        score1 = inference_wav(wav_filepath)
+        # Calculate prosody score (assuming you have a separate model for this)
+        score2 = inference_wav2(wav_filepath)  # You might need to modify this for prosody scoring
+        
         total_score = score1 + score2
 
-        return {"total_score": total_score, "articulation_score": score1, "prosody_score": score2}
-    except subprocess.CalledProcessError as e:
-        return {"error": str(e)}
-    finally:
-        # 임시 파일 삭제
-        try:
-            os.remove(m4a_filepath)
-            os.remove(wav_filepath)
-        except Exception as e:
-            return {"error": f"Error cleaning up temporary files: {str(e)}"}
+        return InferenceResult(
+            total_score=total_score,
+            articulation_score=score1,
+            prosody_score=score2
+        )
+
+    except FileNotFoundError as e:
+        return JSONResponse(status_code=404, content={"error": f"Model file not found: {str(e)}"})
+
+    except pydantic.ValidationError as e:
+        return JSONResponse(status_code=422, content={"error": e.errors()}) 
+    except Exception as e:  # Catch all other exceptions
+        return JSONResponse(status_code=500, content={"error": f"{type(e).__name__}: {str(e)}"})
