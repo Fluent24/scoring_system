@@ -9,6 +9,8 @@ import subprocess
 from pydub import AudioSegment
 import tempfile
 import os
+import sys
+sys.path.append('/usr/bin/ffmpeg')
 
 app = FastAPI()
 
