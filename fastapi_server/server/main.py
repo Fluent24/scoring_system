@@ -14,6 +14,9 @@ import os
 import sys
 sys.path.append('/usr/bin/ffmpeg')
 import argparse
+import subprocess
+from typing import List
+from .inference_wav import inference_wav
 app = FastAPI()
 
 tacotron2 = Tacotron2.from_hparams(
@@ -65,9 +68,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
 #score2 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 articulation --device cpu --dir_model ./model_ckpt/
 #최종 스코어 = score1+score2
 
-import subprocess
-from typing import List
-from .inference_wav import inference_wav
 
 
 class AudioFile(BaseModel):
@@ -93,6 +93,19 @@ async def predict(files: AudioFile = File(...)):
         
         return {"score": score}
     
+@app.post("/infer2/")
+async def predict(files: AudioFile = File(...)):
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+        temp_file.write(await file.read())
+        filepath = temp_file.name
+
+    # 음성 파일을 텍스트로 변환
+    try:
+        cmd = f"python3 inference_wav.py --wav {filepath} --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/"
+        score = subprocess.check_output(cmd, shell=True).decode().split(": ")[-1]
+        return {"score": score}
+    except Exception as e:
+        return {"error": str(e)}
 # curl -X POST \
 #   http://localhost:10010/infer \
 #   -H 'Content-Type: multipart/form-data' \
