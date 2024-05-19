@@ -62,7 +62,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 #score1 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/
-#score2 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/
+#score2 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 articulation --device cpu --dir_model ./model_ckpt/
 #최종 스코어 = score1+score2
 
 import subprocess
