@@ -1,22 +1,20 @@
-import torchaudio
-from fastapi import FastAPI, File, Response, UploadFile
-from fastapi.responses import FileResponse
-from speechbrain.inference.TTS import Tacotron2
-from speechbrain.inference.vocoders import HIFIGAN
-from speechbrain.inference.ASR import EncoderDecoderASR
-import tempfile
-from fastapi.responses import JSONResponse
-import pydantic
-from pydub import AudioSegment
-from pydantic import BaseModel
-import tempfile
 import os
 import sys
-sys.path.append('/usr/bin/ffmpeg')
-import argparse
+import tempfile
 import subprocess
-from typing import List
-from .inference_wav import inference_wav
+
+sys.path.append('/usr/bin/ffmpeg')
+
+import torchaudio  # PyTorch audio library
+from fastapi import FastAPI, File, Response, UploadFile  # FastAPI web framework
+from fastapi.responses import FileResponse, JSONResponse  # FastAPI response types
+
+from speechbrain.inference.ASR import EncoderDecoderASR  # SpeechBrain ASR model
+from speechbrain.inference.TTS import Tacotron2  # SpeechBrain TTS model
+from speechbrain.inference.vocoders import HIFIGAN  # SpeechBrain vocoder model
+
+from .inference_wav import inference_wav  # Custom inference module
+
 app = FastAPI()
 
 tacotron2 = Tacotron2.from_hparams(
@@ -62,51 +60,46 @@ async def transcribe_audio(file: UploadFile = File(...)):
     except Exception as e:
         return {"error": str(e)}
 
-
-
-#score1 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/
-#score2 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 articulation --device cpu --dir_model ./model_ckpt/
-#최종 스코어 = score1+score2
-
-
-
-class AudioFile(BaseModel):
-    files: List[UploadFile]
-
 @app.post("/infer/")
-async def predict(files: AudioFile = File(...)):
-    # 업로드된 파일 처리
-    for file in files.files:
-        # m4a 파일을 wav로 변환
-        m4a_file = f"temp_{file.filename}"
-        wav_file = f"temp_{os.path.splitext(file.filename)[0]}.wav"
-        with open(m4a_file, "wb") as buffer:
-            buffer.write(await file.read())
-        subprocess.run(["ffmpeg", "-i", m4a_file, wav_file])
-        os.remove(m4a_file)
+async def predict(files: list[UploadFile] = File(...)):
+    results = []
 
-        # 추론 함수 호출하고 결과 반환
-        score = inference_wav(wav_file)
-        os.remove(wav_file)
-        cmd = f"python3 inference_wav.py --wav {wav_file} --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/"
-        score = subprocess.check_output(cmd, shell=True).decode().split(": ")[-1]
-        
-        return {"score": score}
-    
-@app.post("/infer2/")
-async def predict(files: AudioFile = File(...)):
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-        temp_file.write(await file.read())
-        filepath = temp_file.name
+    for file in files:
+        # Save uploaded m4a file to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_m4a_file:
+            m4a_file_path = temp_m4a_file.name
+            temp_m4a_file.write(await file.read())
 
-    # 음성 파일을 텍스트로 변환
-    try:
-        cmd = f"python3 inference_wav.py --wav {filepath} --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/"
-        score = subprocess.check_output(cmd, shell=True).decode().split(": ")[-1]
-        return {"score": score}
-    except Exception as e:
-        return {"error": str(e)}
-# curl -X POST \
-#   http://localhost:10010/infer \
-#   -H 'Content-Type: multipart/form-data' \
-#   -F 'files=@score_input.m4a'
+        # Convert m4a to wav
+        wav_file_path = m4a_file_path.replace(".m4a", ".wav")
+        subprocess.run(["ffmpeg", "-i", m4a_file_path, wav_file_path])
+
+        # Perform inference using the inference_wav function
+        score_prosody = inference_wav(
+            lang="en",
+            label_type1="pron",
+            label_type2="prosody",
+            dir_model='/home/coldbrew/fluent/scoring_system/fastapi_server/server/model_ckpt/',
+            device="cpu",
+            audio_len_max=200000,
+            wav=wav_file_path
+        )
+        score_articulation = inference_wav(
+            lang="en",
+            label_type1="pron",
+            label_type2="articulation",
+            dir_model='/home/coldbrew/fluent/scoring_system/fastapi_server/server/model_ckpt/',
+            device="cpu",
+            audio_len_max=200000,
+            wav=wav_file_path
+        )
+        score1 = float(score_prosody)
+        score2 = float(score_articulation)
+        total_score = score1 + score2
+        # Clean up temporary files
+        os.remove(m4a_file_path)
+        os.remove(wav_file_path)
+
+        results.append({"filename": file.filename, "score_prosody": score1, "score_articulation": score2, "total_score" : total_score})
+
+    return JSONResponse(content=results)
