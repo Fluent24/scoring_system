@@ -11,8 +11,6 @@ from pydub import AudioSegment
 from pydantic import BaseModel
 import tempfile
 import os
-from .inference_wav import inference_wav
-from .inference_wav import inference_wav2
 import sys
 sys.path.append('/usr/bin/ffmpeg')
 import argparse
@@ -63,51 +61,39 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 
-#python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ../model_ckpt/
+#score1 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/
+#score2 <- python3 inference_wav.py --wav score_input.m4a --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/
+#최종 스코어 = score1+score2
+
+import subprocess
+from typing import List
+from .inference_wav import inference_wav
 
 
-class InferenceParams(BaseModel):
-    lang: str = "en"
-    label_type1: str = "pron"
-    label_type2: str = "articulation"
+class AudioFile(BaseModel):
+    files: List[UploadFile]
 
-class InferenceResult(BaseModel):
-    total_score: float
-    articulation_score: float
-    prosody_score: float
+@app.post("/infer/")
+async def predict(files: AudioFile = File(...)):
+    # 업로드된 파일 처리
+    for file in files.files:
+        # m4a 파일을 wav로 변환
+        m4a_file = f"temp_{file.filename}"
+        wav_file = f"temp_{os.path.splitext(file.filename)[0]}.wav"
+        with open(m4a_file, "wb") as buffer:
+            buffer.write(await file.read())
+        subprocess.run(["ffmpeg", "-i", m4a_file, wav_file])
+        os.remove(m4a_file)
 
-@app.post("/infer/", response_model=InferenceResult)
-async def scoring_audio(file: UploadFile = File(...), params: InferenceParams = None):
-    if params is None:
-        params = InferenceParams()
-
-    with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as temp_file:
-        temp_file.write(await file.read())
-        m4a_filepath = temp_file.name
-
-    wav_filepath = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-
-    try:
-        track = AudioSegment.from_file(m4a_filepath, format="m4a")
-        track.export(wav_filepath, format="wav")
-
-        # Calculate articulation score
-        score1 = inference_wav(wav_filepath)
-        # Calculate prosody score (assuming you have a separate model for this)
-        score2 = inference_wav2(wav_filepath)  # You might need to modify this for prosody scoring
+        # 추론 함수 호출하고 결과 반환
+        score = inference_wav(wav_file)
+        os.remove(wav_file)
+        cmd = f"python3 inference_wav.py --wav {wav_file} --lang en --label_type1 pron --label_type2 prosody --device cpu --dir_model ./model_ckpt/"
+        score = subprocess.check_output(cmd, shell=True).decode().split(": ")[-1]
         
-        total_score = score1 + score2
-
-        return InferenceResult(
-            total_score=total_score,
-            articulation_score=score1,
-            prosody_score=score2
-        )
-
-    except FileNotFoundError as e:
-        return JSONResponse(status_code=404, content={"error": f"Model file not found: {str(e)}"})
-
-    except pydantic.ValidationError as e:
-        return JSONResponse(status_code=422, content={"error": e.errors()}) 
-    except Exception as e:  # Catch all other exceptions
-        return JSONResponse(status_code=500, content={"error": f"{type(e).__name__}: {str(e)}"})
+        return {"score": score}
+    
+# curl -X POST \
+#   http://localhost:10010/infer \
+#   -H 'Content-Type: multipart/form-data' \
+#   -F 'files=@score_input.m4a'
