@@ -8,6 +8,9 @@ pretrained_models
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 
+*/wandb/*
+wandb/
+
 .ipynb_checkpoints/
 pretrained_models/
 tmp*/
